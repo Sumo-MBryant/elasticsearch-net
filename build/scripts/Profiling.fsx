@@ -1,12 +1,14 @@
 ﻿#I @"../../packages/build/FAKE/tools"
 #r @"FakeLib.dll"
-open Fake
 
 #load @"Paths.fsx"
 
 open System
 open System.IO
 open System.Diagnostics
+
+open Fake
+
 open Paths
 
 module Profiler =

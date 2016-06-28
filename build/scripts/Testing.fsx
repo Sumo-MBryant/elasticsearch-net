@@ -1,14 +1,17 @@
 ﻿#I @"../../packages/build/FAKE/tools"
 #r @"FakeLib.dll"
+
 #r "System.Xml.Linq.dll"
 
 #load @"Paths.fsx"
 
 open System
-open Fake 
-open Paths
-open Fake.Testing
 open System.Xml.Linq;
+
+open Fake 
+open Fake.Testing
+
+open Paths
 
 // xunit console runner is broken on mono 4.0.2 better run with a nightly build:
 // http://download.mono-project.com/archive/nightly/macos-10-x86/

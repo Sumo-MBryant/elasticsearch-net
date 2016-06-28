@@ -3,7 +3,6 @@
 #r @"FakeLib.dll"
 #r @"System.IO.Compression.FileSystem.dll"
 #r @"FSharp.Data.dll"
-open Fake
 
 open System
 open System.Collections.Generic
@@ -11,6 +10,9 @@ open System.IO
 open System.Diagnostics
 open System.Net
 open System.Linq
+
+open Fake
+
 open FSharp.Data
 open FSharp.Data.JsonExtensions
 
@@ -39,6 +41,7 @@ module Paths =
     let Output(folder) = sprintf "%s/%s" BuildOutput folder
     let Source(folder) = sprintf "%s/%s" SourceFolder folder
     let Build(folder) = sprintf "%s/%s" BuildFolder folder
+
     let BinFolder(folder) = 
         let f = replace @"\" "/" folder
         sprintf "%s/%s/bin/Release" SourceFolder f
@@ -52,11 +55,18 @@ module Paths =
         let binFolder = BinFolder projectName
         sprintf "%s/net46" binFolder
 
-    let DotNet51BinFolder(projectName) =
+    let NetStandard13BinFolder(projectName) =
         let binFolder = BinFolder(projectName)
-        sprintf "%s/dotnet5.1" binFolder
+        sprintf "%s/netstandard1.3" binFolder
+
+    let ProjectJson(projectName) =
+        Source(sprintf "%s/project.json" projectName)
+
+    let CsProj(projectName) = 
+        Source(sprintf "%s/%s.csproj" projectName projectName)
 
 module Tooling = 
+
     let private fileDoesNotExist path = path |> Path.GetFullPath |> File.Exists |> not
     let private dirDoesNotExist path = path |> Path.GetFullPath |> Directory.Exists |> not
     let private doesNotExist path = (fileDoesNotExist path) && (dirDoesNotExist path)
@@ -108,7 +118,6 @@ module Tooling =
             info.WorkingDirectory <- "."
             info.Arguments <- args
             ) timeout
-
         code
 
     let private defaultTimeout = TimeSpan.FromMinutes (if isLocalBuild then 5.0 else 15.0)
@@ -119,21 +128,21 @@ module Tooling =
     let execProcessAndReturnMessages proc arguments =
         execProcessWithTimeoutAndReturnMessages proc arguments defaultTimeout
 
-    type NugetTooling(nugetId, path) =
-        member this.Path = Paths.Tool(path)
-        member this.Exec arguments = exec this.Path arguments
-
-    let NugetFile = fun _ ->
+    let nugetFile =
         let targetLocation = "build/tools/nuget/nuget.exe" 
         if (not (File.Exists targetLocation))
         then
             trace "Nuget not found %s. Downloading now"
-            let url = "http://nuget.org/nuget.exe" 
+            let url = "http://dist.nuget.org/win-x86-commandline/latest/nuget.exe" 
             Directory.CreateDirectory("build/tools/nuget") |> ignore
             use webClient = new WebClient()
             webClient.DownloadFile(url, targetLocation)
             trace "nuget downloaded"
-        targetLocation
+        targetLocation 
+
+    type BuildTooling(path) =
+        member this.Path = path
+        member this.Exec arguments = execProcess this.Path arguments
 
     type ProfilerTooling(path) =
         let dotTraceCommandLineTools = "JetBrains.dotTrace.CommandLineTools.10.0.20151114.191633"
@@ -155,29 +164,29 @@ module Tooling =
             this.Bootstrap()
             exec this.Path arguments
 
-    let GitLink = new NugetTooling("GitLink", "gitlink/lib/net45/gitlink.exe")
-    let Node = new NugetTooling("node.js", "Node.js/node.exe")
-    let private npmCli = "Npm/node_modules/npm/cli.js"
-    let Npm = new NugetTooling("npm", npmCli)
-    let XUnit = new NugetTooling("xunit.runner.console", "xunit.runner.console/tools/xunit.console.exe")
+    let Nuget = new BuildTooling(nugetFile)
+    let GitLink = new BuildTooling(Paths.Tool("gitlink/lib/net45/gitlink.exe"))
+    let Node = new BuildTooling(Paths.Tool("Node.js/node.exe"))
+    let Npm = new BuildTooling(Paths.Tool("Npm/node_modules/npm/cli.js"))
+    let XUnit = new BuildTooling(Paths.Tool("xunit.runner.console/tools/xunit.console.exe"))
     let DotTraceProfiler = new ProfilerTooling("ConsoleProfiler.exe")
     let DotTraceReporter = new ProfilerTooling("Reporter.exe")
     let DotTraceSnapshotStats = new ProfilerTooling("SnapshotStat.exe")
 
     //only used to boostrap fake itself
-    let Fake = new NugetTooling("FAKE", "FAKE/tools/FAKE.exe")
+    let Fake = new BuildTooling("FAKE/tools/FAKE.exe")
 
     type NpmTooling(npmId, binJs) =
         let modulePath =  sprintf "%s/node_modules/%s" Paths.ToolsFolder npmId
         let binPath =  sprintf "%s/%s" modulePath binJs
-        let npm =  sprintf "%s/%s" Paths.ToolsFolder npmCli
+        let npm =  sprintf "%s/%s" Paths.ToolsFolder Npm.Path
         do
             if doesNotExist modulePath then
                 traceFAKE "npm module %s not found installing in %s" npmId modulePath
                 if (isMono) then
                     execProcess "npm" ["install"; npmId; "--prefix"; "./packages/build" ] |> ignore
                 else 
-                Node.Exec [npm; "install"; npmId; "--prefix"; "./packages/build" ]
+                Node.Exec [npm; "install"; npmId; "--prefix"; "./packages/build" ] |> ignore
         member this.Path = binPath
 
         member this.Exec arguments =
@@ -200,3 +209,24 @@ module Tooling =
 
     let DotNet = new DotNetTooling("dotnet.exe")
 
+    type DotNetFrameworkIdentifier = { MSBuild: string; Nuget: string; }
+
+    type DotNetFramework = 
+        | Net45 
+        | Net46 
+        static member All = [Net45; Net46] 
+        member this.Identifier = 
+            match this with
+            | Net45 -> { MSBuild = "v4.5"; Nuget = "net45"; }
+            | Net46 -> { MSBuild = "v4.6"; Nuget = "net46"; }
+
+    type MsBuildTooling() =
+       let msbuildProperties = [
+            ("Configuration","Release"); 
+            ("PreBuildEvent","echo");
+       ]
+        
+       member this.Exec output target framework projects =
+            MSBuild output target (msbuildProperties |> List.append [("TargetFrameworkVersion", framework.MSBuild)]) projects |> ignore
+
+    let MsBuild = new MsBuildTooling()

@@ -1,9 +1,13 @@
 ﻿#I @"../../packages/build/FAKE/tools"
 #r @"FakeLib.dll"
+
 #load @"Paths.fsx"
 #load @"Projects.fsx"
+
 open System
+
 open Fake 
+
 open Paths
 open Projects
 
@@ -50,7 +54,7 @@ type Sign() =
 
     static member ValidateNugetDllAreSignedCorrectly() = 
         for p in DotNetProject.All do
-            let name = p.ProjectName.Nuget
+            let name = p.Name
             let outputFolder = Paths.Output(name)
             match p with
             | Project p -> 
